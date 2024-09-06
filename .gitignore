@@ -25,3 +25,5 @@ replay_pid*
 /Build Tools
 /Server
 MCSync-V2-Spigot.code-workspace
+/plugin/target
+plugin/output.txt
