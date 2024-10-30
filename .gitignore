@@ -27,3 +27,6 @@ replay_pid*
 MCSync-V2-Spigot.code-workspace
 /plugin/target
 plugin/output.txt
+plugin/compile.bat
+plugin/compile.bat
+plugin/copyjar.bat

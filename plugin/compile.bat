@@ -1,2 +1,2 @@
-mvn clean package >output.txt
-pause
+f:\Workspace\apache-maven-3.9.9\bin\mvn clean package
+copyjar.bat

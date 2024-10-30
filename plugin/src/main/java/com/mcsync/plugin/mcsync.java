@@ -5,24 +5,33 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.util.UUID;
+import java.util.logging.Level;
 
 import org.bukkit.ChatColor;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
-import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
-import org.bukkit.event.player.PlayerLoginEvent;
+import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerKickEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.json.JSONObject;
 
 public class mcsync extends JavaPlugin implements Listener {
 
+    @SuppressWarnings("FieldMayBeFinal")
     private FileConfiguration config = getConfig();
+    @SuppressWarnings("FieldMayBeFinal")
     private String prefix = ChatColor.LIGHT_PURPLE + "[" + ChatColor.BLUE + "MCSYNC" + ChatColor.LIGHT_PURPLE + "] " + ChatColor.RESET;
+    @SuppressWarnings("FieldMayBeFinal")
     private String endpointLocation = "https://v2.mcsync.live/api.php";
+
+    private boolean isKicked = false;
 
     @Override
     public void onLoad() {
@@ -33,54 +42,85 @@ public class mcsync extends JavaPlugin implements Listener {
         saveDefaultConfig();
         getServer().getPluginManager().registerEvents(this, this);
         this.getCommand("mcsync-reload").setExecutor(new CommandMcsync());
+        getLogger().info("MCSync has been enabled!");
     }
 
     @Override
     public void onDisable() {
+        getLogger().info("MCSync has been disabled.");
     }
 
-    // Handle player login event
-    @EventHandler(priority = EventPriority.LOW)
-    public void onPlayerLogin(PlayerLoginEvent e) {
-        System.out.println("Called PlayerLogin");
-        String fail = "§7Please subscribe to the streamer and join their Discord server.";
-        boolean authorized = false;
+    @EventHandler
+    public void onPlayerKick(PlayerKickEvent event) {
+        isKicked = true;
+    }
 
+    @EventHandler
+    public void onPlayerQuit(PlayerQuitEvent event) {
+        if (isKicked) {
+            event.setQuitMessage(null);
+            isKicked = false;
+        }
+    }
+
+    @EventHandler
+    public void onPlayerJoin(PlayerJoinEvent event) {
+        // Get the player who joined
+        Player player = event.getPlayer();
+        getLogger().info("Called PlayerJoin for: " + player.getName());
+        boolean authorized = false;
         // Check if the player is whitelisted
-        if (getServer().getWhitelistedPlayers().stream().anyMatch(player -> player.getUniqueId().equals(e.getPlayer().getUniqueId()))) {
+        if (player.isWhitelisted()) {
             authorized = true;
         } else {
-            String uuid = e.getPlayer().getUniqueId().toString().replace("-", "");
+            UUID uuid = player.getUniqueId();
+            String uuidWithoutHyphens = uuid.toString().replace("-", "");
             String token = this.config.getString("token");
-            System.out.println("Token: " + token);
-            System.out.println("UUID: " + uuid);
+            getLogger().log(Level.INFO, "Token: {0}", token);
+            getLogger().log(Level.INFO, "UUID: {0}", uuidWithoutHyphens);
 
+            HttpURLConnection connection = null;
             try {
-                URL url = new URL(this.endpointLocation + "?token=" + token + "&uuid=" + uuid);
-
-                HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+                @SuppressWarnings("deprecation")
+                URL url = new URL(this.endpointLocation + "?token=" + token + "&uuid=" + uuidWithoutHyphens);
+                connection = (HttpURLConnection) url.openConnection();
                 connection.setRequestMethod("GET");
-                StringBuilder response = new StringBuilder();
-                try (BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()))) {
-                    String line;
-                    while ((line = reader.readLine()) != null) {
-                        response.append(line);
+                connection.setRequestProperty("User-Agent", "Mozilla/5.0");
+
+                int responseCode = connection.getResponseCode();
+                getLogger().log(Level.INFO, "Response Code: {0}", responseCode);
+
+                // Read the response if the response code is 200 (OK)
+                if (responseCode == HttpURLConnection.HTTP_OK) {
+                    BufferedReader in = new BufferedReader(new InputStreamReader(connection.getInputStream()));
+                    StringBuilder response = new StringBuilder();
+                    String inputLine;
+                    while ((inputLine = in.readLine()) != null) {
+                        response.append(inputLine);
                     }
-                }
-                JSONObject jsonResponse = new JSONObject(response.toString());
-                if (jsonResponse.has("subscriber")) {
-                    authorized = jsonResponse.getBoolean("subscriber");
+                    in.close();
+                    getLogger().log(Level.INFO, "Response: {0}", response.toString());
+                    JSONObject data = new JSONObject(response.toString());
+                    boolean subscriber = data.getBoolean("subscriber");
+                    boolean exists = data.getBoolean("exists");
+                    int tier = data.getInt("tier");
+                    getLogger().log(Level.INFO, "Exists: {0}, Subscriber: {1}, Tier: {2}", new Object[]{exists, subscriber, tier});
+                    authorized = subscriber;
                 } else {
-                    System.out.println("No subscriber field found in the response.");
+                    getLogger().log(null, "GET request failed with response code: {0}", responseCode);
                 }
-            } catch (IOException x) {
-                System.out.println("Error during HTTP request.");
-                x.printStackTrace();
+            } catch (IOException e) {
+                getLogger().log(null, "Error during HTTP request: {0}", e.getMessage());
+            } finally {
+                if (connection != null) {
+                    connection.disconnect();
+                }
             }
         }
-        System.out.println("authorized: " + authorized);
+        getLogger().log(Level.INFO, "Authorized status for {0}: {1}", new Object[]{player.getName(), authorized});
         if (!authorized) {
-            e.disallow(PlayerLoginEvent.Result.KICK_WHITELIST, fail);
+            event.setJoinMessage(null);
+            player.kickPlayer("You are not authorized to join this server.");
         }
     }
 
