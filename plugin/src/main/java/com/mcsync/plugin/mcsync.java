@@ -29,7 +29,7 @@ public class mcsync extends JavaPlugin implements Listener {
     @SuppressWarnings("FieldMayBeFinal")
     private String prefix = ChatColor.LIGHT_PURPLE + "[" + ChatColor.BLUE + "MCSYNC" + ChatColor.LIGHT_PURPLE + "] " + ChatColor.RESET;
     @SuppressWarnings("FieldMayBeFinal")
-    private String endpointLocation = "https://v2.mcsync.live/api.php";
+    private String endpointLocation = "https://mcsync.live/api.php";
 
     private boolean isKicked = false;
 
@@ -43,6 +43,8 @@ public class mcsync extends JavaPlugin implements Listener {
         getServer().getPluginManager().registerEvents(this, this);
         this.getCommand("mcsync-reload").setExecutor(new CommandMcsync());
         getLogger().info("MCSync has been enabled!");
+        String parameters = this.config.getString("parameters");
+        getLogger().info("MCSync parameters: " + parameters);
     }
 
     @Override
@@ -67,17 +69,22 @@ public class mcsync extends JavaPlugin implements Listener {
     public void onPlayerJoin(PlayerJoinEvent event) {
         // Get the player who joined
         Player player = event.getPlayer();
-        getLogger().info("Called PlayerJoin for: " + player.getName());
+
+        UUID uuid = player.getUniqueId();
+        String uuidWithoutHyphens = uuid.toString().replace("-", "");
+        String token = this.config.getString("token");
+        String parameters = this.config.getString("parameters");
+        String fail_message = this.config.getString("fail_message");
+        if (parameters.toLowerCase().contains("debug")) {
+            getLogger().log(Level.INFO, "Token: {0}", token);
+            getLogger().log(Level.INFO, "UUID: {0}", uuidWithoutHyphens);
+            getLogger().info("Called PlayerJoin for: " + player.getName());
+        }
         boolean authorized = false;
         // Check if the player is whitelisted
         if (player.isWhitelisted()) {
             authorized = true;
         } else {
-            UUID uuid = player.getUniqueId();
-            String uuidWithoutHyphens = uuid.toString().replace("-", "");
-            String token = this.config.getString("token");
-            getLogger().log(Level.INFO, "Token: {0}", token);
-            getLogger().log(Level.INFO, "UUID: {0}", uuidWithoutHyphens);
 
             HttpURLConnection connection = null;
             try {
@@ -88,7 +95,10 @@ public class mcsync extends JavaPlugin implements Listener {
                 connection.setRequestProperty("User-Agent", "Mozilla/5.0");
 
                 int responseCode = connection.getResponseCode();
-                getLogger().log(Level.INFO, "Response Code: {0}", responseCode);
+
+                if (parameters.toLowerCase().contains("debug")) {
+                    getLogger().log(Level.INFO, "Response Code: {0}", responseCode);
+                }
 
                 // Read the response if the response code is 200 (OK)
                 if (responseCode == HttpURLConnection.HTTP_OK) {
@@ -99,28 +109,38 @@ public class mcsync extends JavaPlugin implements Listener {
                         response.append(inputLine);
                     }
                     in.close();
-                    getLogger().log(Level.INFO, "Response: {0}", response.toString());
+                    if (parameters.toLowerCase().contains("debug")) {
+                        getLogger().log(Level.INFO, "Response: {0}", response.toString());
+                    }
                     JSONObject data = new JSONObject(response.toString());
                     boolean subscriber = data.getBoolean("subscriber");
                     boolean exists = data.getBoolean("exists");
                     int tier = data.getInt("tier");
-                    getLogger().log(Level.INFO, "Exists: {0}, Subscriber: {1}, Tier: {2}", new Object[]{exists, subscriber, tier});
+                    if (parameters.toLowerCase().contains("debug")) {
+                        getLogger().log(Level.INFO, "Exists: {0}, Subscriber: {1}, Tier: {2}", new Object[]{exists, subscriber, tier});
+                    }
                     authorized = subscriber;
                 } else {
-                    getLogger().log(null, "GET request failed with response code: {0}", responseCode);
+                    if (parameters.toLowerCase().contains("debug")) {
+                        getLogger().log(null, "GET request failed with response code: {0}", responseCode);
+                    }
                 }
             } catch (IOException e) {
-                getLogger().log(null, "Error during HTTP request: {0}", e.getMessage());
+                if (parameters.toLowerCase().contains("debug")) {
+                    getLogger().log(null, "Error during HTTP request: {0}", e.getMessage());
+                }
             } finally {
                 if (connection != null) {
                     connection.disconnect();
                 }
             }
         }
-        getLogger().log(Level.INFO, "Authorized status for {0}: {1}", new Object[]{player.getName(), authorized});
+        if (parameters.toLowerCase().contains("debug")) {
+            getLogger().log(Level.INFO, "Authorized status for {0}: {1}", new Object[]{player.getName(), authorized});
+        }
         if (!authorized) {
             event.setJoinMessage(null);
-            player.kickPlayer("You are not authorized to join this server.");
+            player.kickPlayer(fail_message);
         }
     }
 
