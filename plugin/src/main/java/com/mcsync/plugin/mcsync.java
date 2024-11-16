@@ -63,84 +63,61 @@ public class mcsync extends JavaPlugin implements Listener {
             event.setQuitMessage(null);
             isKicked = false;
         }
+
     }
 
     @EventHandler
     public void onPlayerJoin(PlayerJoinEvent event) {
-        // Get the player who joined
         Player player = event.getPlayer();
-
         UUID uuid = player.getUniqueId();
-        String uuidWithoutHyphens = uuid.toString().replace("-", "");
-        String token = this.config.getString("token");
-        String parameters = this.config.getString("parameters");
-        String fail_message = this.config.getString("fail_message");
-        if (parameters.toLowerCase().contains("debug")) {
-            getLogger().log(Level.INFO, "Token: {0}", token);
-            getLogger().log(Level.INFO, "UUID: {0}", uuidWithoutHyphens);
-            getLogger().info("Called PlayerJoin for: " + player.getName());
-        }
-        boolean authorized = false;
-        // Check if the player is whitelisted
+        String token = config.getString("token");
+        String parameters = config.getString("parameters", "").toLowerCase();
+        boolean authorizePlayer = false;
+        int tier = 0;
         if (player.isWhitelisted()) {
-            authorized = true;
-        } else {
+            authorizePlayer = true;
+        }
+        if (parameters.contains("debug")) {
+            getLogger().info("PlayerJoin: " + player.getName());
+            getLogger().info("Token: " + token);
+            getLogger().info("UUID: " + uuid);
+        }
 
-            HttpURLConnection connection = null;
-            try {
-                @SuppressWarnings("deprecation")
-                URL url = new URL(this.endpointLocation + "?token=" + token + "&uuid=" + uuidWithoutHyphens);
-                connection = (HttpURLConnection) url.openConnection();
-                connection.setRequestMethod("GET");
-                connection.setRequestProperty("User-Agent", "Mozilla/5.0");
-
-                int responseCode = connection.getResponseCode();
-
-                if (parameters.toLowerCase().contains("debug")) {
-                    getLogger().log(Level.INFO, "Response Code: {0}", responseCode);
+        HttpURLConnection connection = null;
+        try {
+            URL url = new URL(endpointLocation + "?token=" + token + "&uuid=" + uuid.toString().replace("-", ""));
+            connection = (HttpURLConnection) url.openConnection();
+            connection.setRequestMethod("GET");
+            connection.setRequestProperty("User-Agent", "Mozilla/5.0");
+            int responseCode = connection.getResponseCode();
+            if (responseCode == HttpURLConnection.HTTP_OK) {
+                BufferedReader in = new BufferedReader(new InputStreamReader(connection.getInputStream()));
+                StringBuilder response = new StringBuilder();
+                String inputLine;
+                while ((inputLine = in.readLine()) != null) {
+                    response.append(inputLine);
                 }
-
-                // Read the response if the response code is 200 (OK)
-                if (responseCode == HttpURLConnection.HTTP_OK) {
-                    BufferedReader in = new BufferedReader(new InputStreamReader(connection.getInputStream()));
-                    StringBuilder response = new StringBuilder();
-                    String inputLine;
-                    while ((inputLine = in.readLine()) != null) {
-                        response.append(inputLine);
-                    }
-                    in.close();
-                    if (parameters.toLowerCase().contains("debug")) {
-                        getLogger().log(Level.INFO, "Response: {0}", response.toString());
-                    }
-                    JSONObject data = new JSONObject(response.toString());
-                    boolean subscriber = data.getBoolean("subscriber");
-                    boolean exists = data.getBoolean("exists");
-                    int tier = data.getInt("tier");
-                    if (parameters.toLowerCase().contains("debug")) {
-                        getLogger().log(Level.INFO, "Exists: {0}, Subscriber: {1}, Tier: {2}", new Object[]{exists, subscriber, tier});
-                    }
-                    authorized = subscriber;
-                } else {
-                    if (parameters.toLowerCase().contains("debug")) {
-                        getLogger().log(null, "GET request failed with response code: {0}", responseCode);
-                    }
-                }
-            } catch (IOException e) {
-                if (parameters.toLowerCase().contains("debug")) {
-                    getLogger().log(null, "Error during HTTP request: {0}", e.getMessage());
-                }
-            } finally {
-                if (connection != null) {
-                    connection.disconnect();
+                in.close();
+                JSONObject data = new JSONObject(response.toString());
+                authorizePlayer = data.getBoolean("subscriber");
+                if (parameters.contains("debug")) {
+                    getLogger().info("Response: " + response.toString());
                 }
             }
+        } catch (IOException e) {
+            getLogger().log(Level.SEVERE, "Error during HTTP request: {0}", e.getMessage());
+        } finally {
+            if (connection != null) {
+                connection.disconnect();
+            }
         }
-        if (parameters.toLowerCase().contains("debug")) {
-            getLogger().log(Level.INFO, "Authorized status for {0}: {1}", new Object[]{player.getName(), authorized});
+
+        if (parameters.contains("debug")) {
+            getLogger().info("Auth: " + authorizePlayer);
         }
-        if (!authorized) {
-            event.setJoinMessage(null);
-            player.kickPlayer(fail_message);
+        if (authorizePlayer) {
+        } else {
+            player.kickPlayer(config.getString("fail_message", "You are not authorized to join this server."));
         }
     }
 
